@@ -1,0 +1,88 @@
+version: "2.3"
+
+volumes:
+  prometheus:
+  grafana:
+  iota:
+
+services:
+  iota:
+    image: bluedigits/iota-node
+    container_name: iota_node
+    volumes:
+      - iota:/iri/data
+    ports:
+      - 14600:14600/udp
+      - 15600:15600/tcp
+    environment:
+      - REMOTE_API_LIMIT=
+    labels:
+      org.label-schema.group: "iota"
+
+  nelson:
+    image: romansemko/nelson.cli
+    container_name: iota_nelson
+    depends_on:
+      - iota
+    ports:
+      - 16600:16600
+      - 18600:18600
+    command: -r iota --neighbors "mainnet.deviota.com/16600 mainnet2.deviota.com/16600 mainnet3.deviota.com/16600 iotairi.tt-tec.net/16600"
+    labels:
+      org.label-schema.group: "iota"
+
+  iota_prom_exporter:
+    image: bambash/iota-prom-exporter
+    container_name: iota_prom_exporter
+    depends_on:
+      - iota
+    volumes:
+      - ${PWD}/prom_iota_config.js:/exporter/config.js
+    labels:
+      org.label-schema.group: "monitoring"
+  
+  node_exporter:
+    image: prom/node-exporter
+    container_name: node_exporter
+    user: root
+    privileged: true
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - --collector.filesystem.ignored-mount-points
+      - "^/(sys|proc|dev|host|etc|rootfs)($$|/)"
+    labels:
+      org.label-schema.group: "monitoring"
+
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    depends_on:
+      - node_exporter
+      - iota_prom_exporter
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prometheus:/prometheus
+    labels:
+      org.label-schema.group: "monitoring"
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=password
+      - GF_USERS_ALLOW_SIGN_UP=false
+    restart: unless-stopped
+    ports:
+      - 3000:3000
+    labels:
+      org.label-schema.group: "monitoring"
